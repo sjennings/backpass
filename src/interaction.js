@@ -7,7 +7,8 @@
  * Non-interactive is detected best-effort from per-harness metadata (codex
  * `originator: codex_exec` / `source: exec`, claude `entrypoint` values that start
  * with `sdk`, an OpenCode child `parent_id`, an OMP subagent's nested layout,
- * Hermes cron/gateway/whatsapp if they ever leak past discovery) and from cwd (a
+ * Hermes cron/gateway/whatsapp if they ever leak past discovery, polytoken
+ * `harness_type` values other than `tui`) and from cwd (a
  * `.no-mistakes` path segment - pipeline worktrees are one kind of non-interactive run,
  * not their own category).
  */
@@ -84,6 +85,14 @@ export function classifyInteraction(transcript) {
 
   if (harness === "claude" && claudeEntrypointIsNonInteractive(signals.entrypoint)) {
     return NON_INTERACTIVE;
+  }
+
+  // Polytoken records what drove the session in `harness_type`: `tui` (or nothing,
+  // on stores that predate the field) is a human at the terminal; any other value
+  // (`exec`, an attached client) is programmatic.
+  if (harness === "polytoken") {
+    const harnessType = String(signals.entrypoint || "").toLowerCase();
+    if (harnessType && harnessType !== "tui") return NON_INTERACTIVE;
   }
 
   if (harness === "opencode" && signals.parentId) return NON_INTERACTIVE;

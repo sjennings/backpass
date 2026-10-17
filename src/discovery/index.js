@@ -8,6 +8,7 @@ import * as opencode from "./adapters/opencode.js";
 import * as hermes from "./adapters/hermes.js";
 import * as cursorCli from "./adapters/cursor-cli.js";
 import * as cursorIde from "./adapters/cursor-ide.js";
+import * as polytoken from "./adapters/polytoken.js";
 
 import { associate, passesStrict } from "./association.js";
 import { collectHosts, resolveHostList } from "./hosts.js";
@@ -29,6 +30,7 @@ export const ADAPTERS = Object.assign(Object.create(null), {
   hermes,
   cursor: cursorCli,
   "cursor-ide": cursorIde,
+  polytoken,
 });
 
 export function getAdapter(harness) {

@@ -31,7 +31,7 @@ It finds the agent sessions that actually ran in your repo, reads
 what happened in them, and proposes evidence-backed edits to your memory surface - the
 memory file and project skills - under a token budget, gated by you.
 
-- **Local-first** - Reads the transcript stores of seven agent harnesses directly from disk,
+- **Local-first** - Reads the transcript stores of eight agent harnesses directly from disk,
   locally or over SSH to your own machines. No API, no upload; transcripts never leave your
   machines except into an agent you already authenticated, and obvious secrets are redacted
   before they do.
@@ -218,7 +218,7 @@ It cannot be combined with
 
 ### 1. Collect samples - which sessions belong to this repo
 
-backpass reads the local transcript stores of seven harnesses directly. No API, no upload.
+backpass reads the local transcript stores of eight harnesses directly. No API, no upload.
 
 | Harness        | Store                                           | Repo tie                                            |
 | -------------- | ----------------------------------------------- | --------------------------------------------------- |
@@ -229,6 +229,7 @@ backpass reads the local transcript stores of seven harnesses directly. No API, 
 | **grok**       | `~/.grok/sessions/<encoded-cwd>/<uuid>/`        | `summary.json` `cwd` + `git_remotes`                |
 | **cursor CLI** | `~/.cursor/chats/<md5(cwd)>/<uuid>/`            | `meta.json` `cwd`                                   |
 | **hermes**     | `~/.hermes/state.db` (sqlite)                   | session cwd, with CLI prompt / ACP config fallbacks |
+| **polytoken**  | `~/.local/share/polytoken/sessions-v1/<id>/`    | `session.json` `project_path`                       |
 
 Claude collection covers `$CLAUDE_CONFIG_DIR/projects` alongside the default store, so a
 relocated config dir does not hide its sessions. The variable is read from backpass's own
@@ -282,6 +283,30 @@ A configured store that is missing or unreadable is named in a warning and skipp
 Hermes collection includes CLI and ACP sessions, plus TUI sessions with an absolute
 `sessions.cwd`. Gateway, cron, and WhatsApp sessions are excluded because their recorded
 cwd belongs to a shared process, not a project.
+
+Polytoken collection reads the default store's two roots: `sessions-v1/<session-id>/`
+(current) and the legacy `sessions/` sibling beside it. Each session directory holds
+`session.json`, whose `project_path` is the session cwd, and `log.jsonl`, the full
+conversation transcript; current logs wrap each message in a DaemonEvent envelope while
+legacy logs and the per-subagent `subagent-<type>_<label>.jsonl` files write bare message
+lines, and one reader handles both. No git remote is recorded, so like claude a deleted
+worktree only reaches tier 3. Migrating a session to the current layout leaves its id in
+both roots; the current root is listed first and a session id found twice is read once.
+Subagent transcripts are analyzed separately, as non-interactive sessions that share
+their parent session's corroborating observer. `harness_type` decides the corpus mix:
+`tui` or absent is interactive, any other value (`exec`, an attached client) is not.
+`POLYTOKEN_DATA_PATH` relocates the whole data directory (`XDG_DATA_HOME` is honored
+too), read from backpass's environment like the other harness variables.
+
+`discovery.polytokenSessionRoots` in your [personal config](#configuration) names more
+local session roots to read beside the default store; it does not affect SSH hosts. Each
+entry is an absolute path (`~/` is expanded) to a sessions directory as accepted by
+polytoken's own `--sessions-dir` flag, or a full data directory holding
+`sessions-v1`/`sessions`. Orchestrators that drive Polytoken workers (firstmate, for
+example) launch each worker with its own per-task sessions root; naming those roots here
+is what makes those sessions visible. Such a root is deleted when the orchestrator cleans
+up its task, so its sessions are collectable only while the root survives - collect a
+task's history before cleanup, or keep a copy. A root that is missing reads as empty.
 
 Association runs in four tiers:
 
@@ -863,7 +888,7 @@ CLI flags on top:
     ]
   },
   "discovery": {
-    "harnesses": ["claude", "codex", "pi", "opencode", "grok", "cursor", "hermes"],
+    "harnesses": ["claude", "codex", "pi", "opencode", "grok", "cursor", "hermes", "polytoken"],
     "since": "30d",
     "worktreeGlobs": [],
     "cloneRoots": [],

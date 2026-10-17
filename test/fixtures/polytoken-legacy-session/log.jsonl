@@ -1,0 +1,6 @@
+{"type":"session_lifecycle","kind":"created","session_id":"0demo01-legacy","emitted_at":"2026-06-19T01:24:56.300000Z"}
+{"type":"system_reminder","reminder":{"slug":"demo","body":"The applicable project instruction files follow."},"emitted_at":"2026-06-19T01:24:56.400000Z"}
+{"type":"user","content":"Check the legacy log shape.","prompt_id":"00000000-0000-0000-0000-00000000000a","emitted_at":"2026-06-19T01:24:57.000000Z"}
+{"type":"assistant","blocks":[{"type":"thinking","text":"","signature":"demo"},{"type":"text","text":"Reading the fixture."},{"type":"tool_use","id":"toolu_demo00000000000000000002","name":"file_read","input":{"path":"test/fixtures/AGENTS.md"}}],"emitted_at":"2026-06-19T01:24:58.000000Z"}
+{"type":"tool_result","results":[{"tool_use_id":"toolu_demo00000000000000000002","content":{"text":"# Demo agent instructions"},"is_error":false}],"emitted_at":"2026-06-19T01:24:59.000000Z"}
+{"type":"assistant","blocks":[{"type":"text","text":"The legacy shape reads fine."}],"emitted_at":"2026-06-19T01:25:00.000000Z"}

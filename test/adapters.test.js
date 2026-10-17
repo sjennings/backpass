@@ -14,6 +14,7 @@ import * as grok from "../src/discovery/adapters/grok.js";
 import * as cursorCli from "../src/discovery/adapters/cursor-cli.js";
 import * as hermes from "../src/discovery/adapters/hermes.js";
 import * as opencode from "../src/discovery/adapters/opencode.js";
+import * as polytoken from "../src/discovery/adapters/polytoken.js";
 import { statOrNull } from "../src/discovery/adapters/shared.js";
 import { associate } from "../src/discovery/association.js";
 import { discoverTranscripts } from "../src/discovery/index.js";
@@ -1314,4 +1315,186 @@ test("an opencode store with neither session table is named as drifted, never re
       await assert.rejects(opencode.discover({ cutoffMs: null }), /unrecognised opencode store/);
     },
   );
+});
+
+function polytokenCandidate(file, dir, { subagent = false } = {}) {
+  return {
+    ...candidateFor(file),
+    sessionDir: dir,
+    sessionId: "0demo00-demo",
+    subagent,
+    label: subagent ? path.basename(file, ".jsonl") : null,
+  };
+}
+
+test("polytoken adapter classifies a session by its session.json", () => {
+  const dir = path.join(FIXTURES, "polytoken-session");
+  const descriptor = polytoken.classify(polytokenCandidate(path.join(dir, "log.jsonl"), dir));
+
+  assert.equal(descriptor.id, "0demo00-demo");
+  assert.equal(descriptor.cwd, "/repo/demo");
+  assert.equal(descriptor.model, "zai/glm-5.3");
+  assert.equal(descriptor.title, "Demo parser fix");
+  // Polytoken records no git remote, so dead worktrees cannot reach tier 2.
+  assert.deepEqual(descriptor.remotes, []);
+  assert.equal(descriptor.startedAt, Date.parse("2026-10-16T10:00:00.000000Z"));
+  assert.deepEqual(descriptor.interactionSignals, { entrypoint: "tui" });
+});
+
+test("polytoken adapter reads turns and tool calls, dropping harness scaffolding", () => {
+  const { events, model } = polytoken.read({ path: path.join(FIXTURES, "polytoken-session", "log.jsonl") });
+
+  assert.equal(model, "zai/glm-5.3");
+  assert.deepEqual(
+    messages(events).map((m) => `${m.role}: ${m.text}`),
+    ["user: Open a PR for the parser fix.", "assistant: I will run the tests first.", "assistant: Opened PR #2731."],
+  );
+
+  const [tool] = tools(events);
+  assert.equal(tool.name, "shell_exec");
+  assert.equal(tool.input.command, "npm test");
+  assert.equal(tool.result, "2 passing");
+});
+
+test("polytoken adapter lists subagent transcripts with their parent's metadata", () => {
+  const dir = path.join(FIXTURES, "polytoken-session");
+  const file = path.join(dir, "subagent-general-purpose_demo-scan.jsonl");
+  const descriptor = polytoken.classify(polytokenCandidate(file, dir, { subagent: true }));
+
+  assert.equal(descriptor.id, "0demo00-demo/subagent-general-purpose_demo-scan");
+  assert.equal(descriptor.cwd, "/repo/demo");
+  assert.equal(descriptor.parentSessionId, "0demo00-demo");
+  assert.equal(descriptor.parentSessionPath, path.join(dir, "log.jsonl"));
+  assert.deepEqual(descriptor.interactionSignals, { source: "subagent" });
+  assert.equal(descriptor.startedAt, Date.parse("2026-10-16T10:00:10.000000Z"));
+
+  const { events } = polytoken.read({ path: file });
+  assert.deepEqual(
+    messages(events).map((m) => `${m.role}: ${m.text}`),
+    [
+      "user: Scan the fixtures directory.",
+      "assistant: Scanning now.",
+      "assistant: Found the polytoken-session fixture.",
+    ],
+  );
+  const [tool] = tools(events);
+  assert.equal(tool.name, "glob");
+  assert.equal(tool.result, "polytoken-session");
+});
+
+test("polytoken adapter reads a legacy bare-line log, including kindless user turns", () => {
+  const { events, model } = polytoken.read({ path: path.join(FIXTURES, "polytoken-legacy-session", "log.jsonl") });
+
+  assert.equal(model, null, "legacy lines carry no attribution envelope");
+  assert.deepEqual(
+    messages(events).map((m) => `${m.role}: ${m.text}`),
+    ["user: Check the legacy log shape.", "assistant: Reading the fixture.", "assistant: The legacy shape reads fine."],
+  );
+  const [tool] = tools(events);
+  assert.equal(tool.name, "file_read");
+  assert.equal(tool.result, "# Demo agent instructions");
+});
+
+function writePolytokenSession(root, sessionId, fixture = "polytoken-session") {
+  const dir = path.join(root, sessionId);
+  fs.mkdirSync(dir, { recursive: true });
+  for (const name of fs.readdirSync(path.join(FIXTURES, fixture))) {
+    fs.copyFileSync(path.join(FIXTURES, fixture, name), path.join(dir, name));
+  }
+  const metaFile = path.join(dir, "session.json");
+  const meta = JSON.parse(fs.readFileSync(metaFile, "utf8"));
+  meta.session_id = sessionId;
+  fs.writeFileSync(metaFile, JSON.stringify(meta, null, 2));
+  return dir;
+}
+
+/**
+ * @param {{ home?: string, dataPath?: string | null, config?: { discovery?: { polytokenSessionRoots?: string[] } } }} [options]
+ */
+function enumeratePolytoken({ home: homeDir, dataPath, config } = {}) {
+  const prevHome = process.env.HOME;
+  const prevDataPath = process.env.POLYTOKEN_DATA_PATH;
+  const prevXdg = process.env.XDG_DATA_HOME;
+  process.env.HOME = homeDir;
+  if (dataPath) process.env.POLYTOKEN_DATA_PATH = dataPath;
+  else delete process.env.POLYTOKEN_DATA_PATH;
+  delete process.env.XDG_DATA_HOME;
+  try {
+    return polytoken.enumerate({ config });
+  } finally {
+    process.env.HOME = prevHome;
+    if (prevDataPath === undefined) delete process.env.POLYTOKEN_DATA_PATH;
+    else process.env.POLYTOKEN_DATA_PATH = prevDataPath;
+    if (prevXdg === undefined) delete process.env.XDG_DATA_HOME;
+    else process.env.XDG_DATA_HOME = prevXdg;
+  }
+}
+
+test("polytoken adapter enumerates current and legacy roots once each, and skips non-sessions", () => {
+  const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "backpass-polytoken-home-"));
+  const dataDir = path.join(fakeHome, ".local", "share", "polytoken");
+  writePolytokenSession(path.join(dataDir, "sessions-v1"), "0demo00-demo");
+  // Migrating to the current layout leaves the same id in both roots: listed once.
+  writePolytokenSession(path.join(dataDir, "sessions"), "0demo00-demo");
+  writePolytokenSession(path.join(dataDir, "sessions"), "0demo01-legacy", "polytoken-legacy-session");
+  fs.mkdirSync(path.join(dataDir, "sessions-v1", "not-a-session"), { recursive: true });
+
+  const candidates = enumeratePolytoken({ home: fakeHome });
+  assert.deepEqual(candidates.map((candidate) => `${candidate.sessionId}:${path.basename(candidate.path)}`).sort(), [
+    "0demo00-demo:log.jsonl",
+    "0demo00-demo:subagent-general-purpose_demo-scan.jsonl",
+    "0demo01-legacy:log.jsonl",
+  ]);
+  assert.equal(candidates.find((c) => path.basename(c.path).startsWith("subagent-")).subagent, true);
+});
+
+test("polytoken adapter honors POLYTOKEN_DATA_PATH and configured session roots", () => {
+  const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), "backpass-polytoken-home-"));
+  const relocated = fs.mkdtempSync(path.join(os.tmpdir(), "backpass-polytoken-data-"));
+  writePolytokenSession(path.join(relocated, "sessions-v1"), "0demo00-demo");
+  const taskRoot = fs.mkdtempSync(path.join(os.tmpdir(), "backpass-polytoken-task-"));
+  writePolytokenSession(taskRoot, "0demo02-worker");
+
+  const name = (candidate) => (candidate.subagent ? `${candidate.sessionId}/${candidate.label}` : candidate.sessionId);
+
+  const viaEnv = enumeratePolytoken({ home: emptyHome, dataPath: relocated });
+  assert.deepEqual(viaEnv.map(name).sort(), ["0demo00-demo", "0demo00-demo/subagent-general-purpose_demo-scan"]);
+
+  // A configured root holds session directories directly, as polytoken's own
+  // --sessions-dir flag accepts (an orchestrator's per-task root).
+  const viaTaskRoot = enumeratePolytoken({
+    home: emptyHome,
+    config: { discovery: { polytokenSessionRoots: [taskRoot] } },
+  });
+  assert.deepEqual(viaTaskRoot.map(name).sort(), [
+    "0demo02-worker",
+    "0demo02-worker/subagent-general-purpose_demo-scan",
+  ]);
+
+  // A configured root holding the sessions-v1/sessions layout is a data directory.
+  const viaDataDir = enumeratePolytoken({
+    home: emptyHome,
+    config: { discovery: { polytokenSessionRoots: [relocated] } },
+  });
+  assert.deepEqual(viaDataDir.map(name).sort(), ["0demo00-demo", "0demo00-demo/subagent-general-purpose_demo-scan"]);
+});
+
+test("polytoken classification depends on session.json, so a late harness_type edit reclassifies", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "backpass-polytoken-root-"));
+  writePolytokenSession(root, "0demo03-exec");
+  const dir = path.join(root, "0demo03-exec");
+  const logFile = path.join(dir, "log.jsonl");
+  const candidate = polytokenCandidate(logFile, dir);
+
+  const before = polytoken.cacheDependency(candidate, { scanContext: polytoken.createScanContext() });
+  assert.deepEqual(polytoken.classify(candidate).interactionSignals, { entrypoint: "tui" });
+
+  const metaFile = path.join(dir, "session.json");
+  const meta = JSON.parse(fs.readFileSync(metaFile, "utf8"));
+  meta.harness_type = "exec";
+  fs.writeFileSync(metaFile, JSON.stringify(meta, null, 2));
+
+  const after = polytoken.cacheDependency(candidate, { scanContext: polytoken.createScanContext() });
+  assert.notEqual(after, before);
+  assert.deepEqual(polytoken.classify(candidate).interactionSignals, { entrypoint: "exec" });
 });

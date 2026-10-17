@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "session_id": "0demo00-demo",
+  "project_path": "/repo/demo",
+  "created_at": "2026-10-16T10:00:00.000000Z",
+  "last_activity_at": "2026-10-16T10:05:00.000000Z",
+  "last_user_message_preview": "Open a PR for the parser fix.",
+  "initial_model_name": "zai/glm-5.3",
+  "initial_selection": {
+    "from_model": null,
+    "to_model": "zai/glm-5.3",
+    "reasoning_effort": "medium",
+    "assignments": {},
+    "effective_options": {},
+    "nondefault_explicit": {},
+    "quarantined": false,
+    "created_seq": 0
+  },
+  "initial_facet": "execute",
+  "harness_type": "tui",
+  "orchestrators": [],
+  "inferred_title": "Demo parser fix",
+  "parent_session_id": { "kind": "standalone" }
+}

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "session_id": "0demo01-legacy",
+  "project_path": "/repo/demo",
+  "created_at": "2026-06-19T01:24:56.201662Z",
+  "last_activity_at": "2026-06-19T02:23:59.686764Z",
+  "last_user_message_preview": "Check the legacy log shape.",
+  "initial_model_name": "zai/glm-5.2",
+  "parent_session_id": { "kind": "standalone" }
+}

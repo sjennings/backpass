@@ -1,0 +1,1 @@
+{"timestamp":"2026-10-16T10:00:00.050000Z","level":"INFO","fields":{"message":"demo diagnostic line","event":"demo.startup"},"target":"polytoken_daemon::demo"}
