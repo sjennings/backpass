@@ -15,6 +15,7 @@ import * as grok from "../src/discovery/adapters/grok.js";
 import * as cursorCli from "../src/discovery/adapters/cursor-cli.js";
 import * as hermes from "../src/discovery/adapters/hermes.js";
 import * as opencode from "../src/discovery/adapters/opencode.js";
+import * as polytoken from "../src/discovery/adapters/polytoken.js";
 import { statOrNull } from "../src/discovery/adapters/shared.js";
 import { classifyInteraction, INTERACTIVE, NON_INTERACTIVE } from "../src/interaction.js";
 import { discoverTranscripts } from "../src/discovery/index.js";
@@ -118,6 +119,36 @@ test("pi, grok, and cursor CLI default interactive; a .no-mistakes cwd is non-in
   assert.equal(classifyInteraction({ harness: "grok", cwd: pipelineCwd, interactionSignals: {} }), NON_INTERACTIVE);
   assert.equal(classifyInteraction({ harness: "cursor", cwd: pipelineCwd, interactionSignals: {} }), NON_INTERACTIVE);
   assert.equal(classifyInteraction({ harness: "cursor-ide", cwd: "/repo/demo", interactionSignals: {} }), INTERACTIVE);
+});
+
+test("polytoken tui sessions are interactive; other clients and subagents are not", () => {
+  const dir = path.join(FIXTURES, "polytoken-session");
+  const tuiSession = polytoken.classify({
+    ...candidateFor(path.join(dir, "log.jsonl")),
+    sessionDir: dir,
+    sessionId: "0demo00-demo",
+    subagent: false,
+    label: null,
+  });
+  assert.equal(labeled("polytoken", tuiSession), INTERACTIVE);
+
+  const subagent = polytoken.classify({
+    ...candidateFor(path.join(dir, "subagent-general-purpose_demo-scan.jsonl")),
+    sessionDir: dir,
+    sessionId: "0demo00-demo",
+    subagent: true,
+    label: "subagent-general-purpose_demo-scan",
+  });
+  assert.equal(
+    classifyInteraction({ harness: "polytoken", ...subagent, parentSessionId: subagent.parentSessionId }),
+    NON_INTERACTIVE,
+  );
+
+  assert.equal(classifyInteraction({ harness: "polytoken", interactionSignals: {} }), INTERACTIVE);
+  assert.equal(
+    classifyInteraction({ harness: "polytoken", interactionSignals: { entrypoint: "exec" } }),
+    NON_INTERACTIVE,
+  );
 });
 
 test("hermes cli/acp sessions are interactive; cron source would be non-interactive", async () => {

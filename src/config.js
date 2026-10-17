@@ -8,7 +8,7 @@ import { normalizeSkillsDir } from "./skills.js";
 export const CONFIG_FILENAME = ".backpassrc.json";
 export const STATE_DIRNAME = ".backpass";
 
-export const ALL_HARNESSES = ["claude", "codex", "pi", "opencode", "grok", "cursor", "hermes"];
+export const ALL_HARNESSES = ["claude", "codex", "pi", "opencode", "grok", "cursor", "hermes", "polytoken"];
 /** Cursor IDE is deferred to v1.1 and only ever runs behind --include-cursor-ide. */
 export const OPT_IN_HARNESSES = ["cursor-ide"];
 
@@ -119,6 +119,16 @@ export const DEFAULT_CONFIG = {
      * is refused by name. Absolute paths; `~` is expanded.
      */
     opencodeStores: [],
+    /**
+     * More Polytoken session roots to read alongside the default store: each a
+     * sessions directory as accepted by polytoken's own `--sessions-dir` flag (an
+     * orchestrator such as firstmate launches workers with one per task), or a full
+     * data directory holding `sessions-v1`/`sessions`. Reading them changes nothing
+     * about where polytoken itself writes. Personal configuration only, like `hosts`
+     * and `opencodeStores`: a repository file that sets it is refused by name.
+     * Absolute paths; `~` is expanded.
+     */
+    polytokenSessionRoots: [],
     /** Include Oh My Pi's default session store in Pi discovery; opt-in only. */
     includeOmp: false,
     minUserTurns: 2,
@@ -492,6 +502,20 @@ function validate(config, { kind = "project", repoRoot = null } = {}) {
     }
     return path.resolve(expanded);
   });
+  const polytokenRoots = config.discovery.polytokenSessionRoots;
+  if (!Array.isArray(polytokenRoots) || polytokenRoots.some((p) => typeof p !== "string" || !p.trim())) {
+    throw new UserError("config.discovery.polytokenSessionRoots must be an array of paths");
+  }
+  config.discovery.polytokenSessionRoots = polytokenRoots.map((entry) => {
+    const expanded = expandHomePath(entry.trim());
+    if (!path.isAbsolute(expanded)) {
+      throw new UserError(
+        `config.discovery.polytokenSessionRoots entry "${entry}" is not an absolute path`,
+        "name the sessions directory from / or ~/; a transcript store is not a repository path",
+      );
+    }
+    return path.resolve(expanded);
+  });
   return config;
 }
 
@@ -500,10 +524,10 @@ function validate(config, { kind = "project", repoRoot = null } = {}) {
  *
  * `.backpassrc.json` is checked in and shared, so a `discovery.hosts` there would let one
  * contributor point every other contributor's backpass at a host - which is exactly the
- * "someone else's transcripts" the vision resists. A `discovery.opencodeStores` entry
- * would do the same with a path on their disk. Both are personal configuration and live
- * in the person's own global file; a host can also be named on the command line for one
- * run.
+ * "someone else's transcripts" the vision resists. A `discovery.opencodeStores` or
+ * `discovery.polytokenSessionRoots` entry would do the same with a path on their disk. All
+ * are personal configuration and live in the person's own global file; a host can also be
+ * named on the command line for one run.
  */
 function refuseRepoPersonalSettings(repoFile, file) {
   if (!repoFile?.discovery) return;
@@ -519,6 +543,12 @@ function refuseRepoPersonalSettings(repoFile, file) {
       `move them to ${userConfigPath()}`,
     );
   }
+  if (repoFile.discovery.polytokenSessionRoots !== undefined) {
+    throw new UserError(
+      `${file} sets discovery.polytokenSessionRoots, but transcript stores are personal configuration`,
+      `move them to ${userConfigPath()}`,
+    );
+  }
 }
 
 /**
@@ -529,10 +559,10 @@ function refuseRepoPersonalSettings(repoFile, file) {
  * User: defaults < user-scope defaults < ~/.config/backpass/config.json `user` block <
  *   CLI flags. `.backpassrc.json` is never read.
  *
- * `discovery.hosts` and `discovery.opencodeStores` are the settings a repository file may
- * not carry at all (`refuseRepoPersonalSettings`). In user scope they default to the
- * global file's top-level lists, so a person names their machines and stores once rather
- * than once per scope.
+ * `discovery.hosts`, `discovery.opencodeStores`, and `discovery.polytokenSessionRoots` are
+ * the settings a repository file may not carry at all (`refuseRepoPersonalSettings`). In
+ * user scope they default to the global file's top-level lists, so a person names their
+ * machines and stores once rather than once per scope.
  */
 export function loadConfig(repoRoot, overrides = {}, { kind = "project" } = {}) {
   const scopeKind = parseScopeKind(kind);
@@ -545,7 +575,7 @@ export function loadConfig(repoRoot, overrides = {}, { kind = "project" } = {}) 
       (acc, layer) => (layer ? deepMerge(acc, layer) : acc),
       {},
     );
-    for (const key of ["hosts", "opencodeStores"]) {
+    for (const key of ["hosts", "opencodeStores", "polytokenSessionRoots"]) {
       if (userBlock.discovery?.[key] === undefined && overrides.discovery?.[key] === undefined) {
         merged.discovery[key] = globalFile?.discovery?.[key] ?? DEFAULT_CONFIG.discovery[key];
       }

@@ -11,6 +11,7 @@ import * as opencode from "../adapters/opencode.js";
 import * as hermes from "../adapters/hermes.js";
 import * as cursorCli from "../adapters/cursor-cli.js";
 import * as cursorIde from "../adapters/cursor-ide.js";
+import * as polytoken from "../adapters/polytoken.js";
 
 import { isSelfSession } from "../self.js";
 import { SELF_SESSION_SENTINEL } from "../../sentinel.js";
@@ -51,6 +52,7 @@ const ADAPTERS = Object.assign(Object.create(null), {
   hermes,
   cursor: cursorCli,
   "cursor-ide": cursorIde,
+  polytoken,
 });
 
 function rawPathOf(adapter, ref) {
